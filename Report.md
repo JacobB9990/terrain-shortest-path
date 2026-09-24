@@ -147,7 +147,9 @@ The accuracy of the routes is also limited by the resolution of the DEM and the 
 Finally, the hiking times in these experiments are estimates produced using Tobler's hiking function. They were not compared against actual recorded hiking times, so the results show differences predicted by the model rather than guaranteed real-world time savings.
 
 ## 9. Conclusion
+This project showed an implementation of Tobler's non-isotropic geographic model using real elevation data and Dijkstra's algorithm. By using Tobler's hiking function as the travel cost, the terrain-aware routes were able to avoid steeper terrain and, in many cases, reduce estimated hiking time compared with shortest-distance routes.
 
+While these results were based on modeled travel times rather than field-tested routes, Tobler's hiking function provides a useful estimate of how slope can affect movement through geographic space. Overall, the implementation shows why distance alone is not always enough when modeling travel across real terrain.
 
 ## References
 
