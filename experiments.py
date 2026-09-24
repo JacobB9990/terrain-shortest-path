@@ -1,19 +1,22 @@
-"""Run N random start/end experiments comparing the terrain-aware route to the
-shortest-distance route. Writes results to experiments.csv and prints a summary.
+"""Run N random start/end experiments per area, comparing the terrain-aware
+route to the shortest-distance route. Writes results/<area>.csv per area.
 
-Usage: python3 experiments.py [n] [seed]
+Usage: python3 experiments.py [--areas a,b] [--n 100] [--seed 0]
 """
 
+import argparse
 import csv
 import math
+import os
 import random
-import sys
 from concurrent.futures import ProcessPoolExecutor
 
+import dem
 import main
 
-ROWS, COLS = main.elevation.shape
-MIN_SEPARATION = 150  # cells, so each pair is a route worth comparing
+# fraction of the grid diagonal a start/end pair must span, so routes are
+# comparably long relative to each DEM instead of a fixed cell count
+MIN_SEPARATION_FRAC = 0.25
 
 FIELDS = [
     "run",
@@ -36,15 +39,18 @@ FIELDS = [
 ]
 
 
-def random_pairs(n, seed):
+def random_pairs(n, seed, shape):
+    rows, cols = shape
+    min_separation = MIN_SEPARATION_FRAC * math.hypot(rows, cols)
+
     rng = random.Random(seed)
     pairs = []
 
     while len(pairs) < n:
-        start = (rng.randrange(ROWS), rng.randrange(COLS))
-        end = (rng.randrange(ROWS), rng.randrange(COLS))
+        start = (rng.randrange(rows), rng.randrange(cols))
+        end = (rng.randrange(rows), rng.randrange(cols))
 
-        if math.dist(start, end) >= MIN_SEPARATION:
+        if math.dist(start, end) >= min_separation:
             pairs.append((start, end))
 
     return pairs
@@ -91,52 +97,66 @@ def run_one(args):
     }
 
 
-def check(rows):
+def check(rows, area):
     """Dijkstra invariants: each route must be optimal under its own cost."""
     for r in rows:
-        assert r["time_saved_min"] >= -1e-6, f"run {r['run']}: terrain route slower"
-        assert r["extra_dist_m"] >= -1e-6, f"run {r['run']}: distance route longer"
+        assert r["time_saved_min"] >= -1e-6, f"{area} run {r['run']}: terrain slower"
+        assert r["extra_dist_m"] >= -1e-6, f"{area} run {r['run']}: distance longer"
 
 
 def mean(rows, key):
     return sum(r[key] for r in rows) / len(rows)
 
 
-def main_cli():
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 100
-    seed = int(sys.argv[2]) if len(sys.argv) > 2 else 0
+def run_area(area, n, seed, outdir="results"):
+    path = dem.ensure(area)
+    elevation = main.load_dem(path)
 
-    jobs = [(i + 1, s, e) for i, (s, e) in enumerate(random_pairs(n, seed))]
+    jobs = [
+        (i + 1, s, e)
+        for i, (s, e) in enumerate(random_pairs(n, seed, elevation.shape))
+    ]
 
-    with ProcessPoolExecutor() as pool:
+    # each worker loads the same DEM into its own globals (spawn start method)
+    with ProcessPoolExecutor(initializer=main.load_dem, initargs=(path,)) as pool:
         rows = [r for r in pool.map(run_one, jobs) if r]
 
-    check(rows)
+    check(rows, area)
 
-    with open("experiments.csv", "w", newline="") as f:
+    os.makedirs(outdir, exist_ok=True)
+
+    with open(f"{outdir}/{area}.csv", "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=FIELDS)
         writer.writeheader()
         writer.writerows(rows)
 
-    saved = [r["time_saved_min"] for r in rows]
-    detour = [r["extra_dist_m"] for r in rows]
+    relief = float(elevation.max() - elevation.min())
+    pct = [r["time_saved_min"] / r["shortest_time_min"] * 100 for r in rows]
 
-    print(f"\n--- {len(rows)} EXPERIMENTS (seed {seed}) ---")
-    print(f"pairs kept at >= {MIN_SEPARATION} cells straight-line separation")
-    print(f"mean shortest-route distance:  {mean(rows, 'shortest_dist_km'):.2f} km")
-    print(f"mean terrain-route distance:   {mean(rows, 'terrain_dist_km'):.2f} km")
-    print(f"mean detour:                   {mean(rows, 'extra_dist_m'):.0f} m")
-    print(f"mean shortest-route time:      {mean(rows, 'shortest_time_min'):.1f} min")
-    print(f"mean terrain-route time:       {mean(rows, 'terrain_time_min'):.1f} min")
-    print(f"mean time saved:               {mean(rows, 'time_saved_min'):.1f} min")
-    print(f"median time saved:             {sorted(saved)[len(saved) // 2]:.1f} min")
-    print(f"max time saved:                {max(saved):.1f} min")
-    print(f"min time saved:                {min(saved):.1f} min")
-    print(f"max detour:                    {max(detour):.0f} m")
-    print(f"mean elevation gain, terrain:  {mean(rows, 'terrain_gain_m'):.0f} m")
-    print(f"mean elevation gain, shortest: {mean(rows, 'shortest_gain_m'):.0f} m")
-    print("\nwrote experiments.csv")
+    print(
+        f"{area:22s} {str(elevation.shape):14s} relief {relief:6.0f} m  "
+        f"saved {mean(rows, 'time_saved_min'):6.1f} min "
+        f"({sum(pct) / len(pct):4.1f}%)  "
+        f"detour {mean(rows, 'extra_dist_m'):5.0f} m  "
+        f"climb {mean(rows, 'shortest_gain_m'):5.0f}->{mean(rows, 'terrain_gain_m'):4.0f} m"
+    )
+
+    return rows
 
 
 if __name__ == "__main__":
-    main_cli()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--areas", default="", help="comma-separated, default all")
+    parser.add_argument("--n", type=int, default=100)
+    parser.add_argument("--seed", type=int, default=0)
+    args = parser.parse_args()
+
+    areas = args.areas.split(",") if args.areas else dem.all_areas()
+
+    print(f"{args.n} experiments per area, seed {args.seed}, "
+          f"pairs >= {MIN_SEPARATION_FRAC:.0%} of grid diagonal apart\n")
+
+    for area in areas:
+        run_area(area, args.n, args.seed)
+
+    print("\nwrote results/<area>.csv")

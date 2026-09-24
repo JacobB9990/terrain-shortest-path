@@ -1,0 +1,16 @@
+# DEMs: ~32 MB, fetched on demand by dem.py
+data/*.tif
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# OS / editor
+.DS_Store
+.idea/
+*.swp
+
+# 3D terrain viewer (local only)
+/3d\?/

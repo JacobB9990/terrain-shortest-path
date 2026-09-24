@@ -1,8 +1,9 @@
-"""Cross-experiment plots over experiments.csv -> plots/analysis.png.
+"""Cross-experiment plots for one area -> plots/analysis_<area>.png.
 
-Usage: python3 analysis.py
+Usage: python3 analysis.py [csv]   # default results/ricketts_glen.csv
 """
 
+import argparse
 import csv
 import os
 
@@ -14,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 
-def load(path="experiments.csv"):
+def load(path):
     with open(path) as f:
         rows = [{k: float(v) for k, v in r.items()} for r in csv.DictReader(f)]
 
@@ -44,8 +45,9 @@ def scatter(ax, x, y, xlabel, ylabel, title, fit=True):
     return r
 
 
-def main_cli():
-    col = load()
+def main_cli(path):
+    name = os.path.basename(path)[:-4]
+    col = load(path)
     os.makedirs("plots", exist_ok=True)
 
     fig, axes = plt.subplots(2, 2, figsize=(14, 10))
@@ -95,11 +97,12 @@ def main_cli():
     )
 
     fig.suptitle(
-        f"Terrain-aware vs shortest-distance routing, {len(pct)} random pairs",
+        f"{name.replace(chr(95), chr(32)).title()}: terrain-aware vs shortest-distance, {len(pct)} random pairs",
         fontsize=14,
     )
     fig.tight_layout()
-    fig.savefig("plots/analysis.png", dpi=130, bbox_inches="tight")
+    out = f"plots/analysis_{name}.png"
+    fig.savefig(out, dpi=130, bbox_inches="tight")
 
     def r_of(a, b):
         return np.corrcoef(col[a], b)[0, 1]
@@ -111,8 +114,10 @@ def main_cli():
     print(f"shortest_dist vs percent      r = {r_of('shortest_dist_km', pct):.3f}")
     print(f"\nfit: 1 minute saved per {1 / slope:.1f} m of climb avoided")
     print(f"percent saved: mean {pct.mean():.1f}%  median {np.median(pct):.1f}%  range {pct.min():.1f}-{pct.max():.1f}%")
-    print("\nwrote plots/analysis.png")
+    print(f"\nwrote {out}")
 
 
 if __name__ == "__main__":
-    main_cli()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("csv", nargs="?", default="results/ricketts_glen.csv")
+    main_cli(parser.parse_args().csv)

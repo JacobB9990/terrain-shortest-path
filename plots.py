@@ -1,11 +1,12 @@
-"""Re-run the most interesting experiments from experiments.csv and save plots.
+"""Re-run the most interesting experiments per area and save route plots.
 
-Picks one run per "interesting" criterion, recomputes both routes, and writes
-plots/run<N>_map.png and plots/run<N>_profile.png.
+Picks one run per "interesting" criterion from results/<area>.csv, recomputes
+both routes, and writes plots/<area>/run<N>_{map,profile}.png.
 
-Usage: python3 plots.py
+Usage: python3 plots.py [--areas a,b]
 """
 
+import argparse
 import csv
 import os
 
@@ -13,6 +14,7 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+import dem
 import main
 
 # what makes a run worth looking at
@@ -25,7 +27,7 @@ CRITERIA = {
 }
 
 
-def load(path="experiments.csv"):
+def load(path):
     with open(path) as f:
         return [{k: float(v) for k, v in row.items()} for row in csv.DictReader(f)]
 
@@ -60,25 +62,45 @@ def plot_run(row, labels, outdir):
     )
 
     print(
-        f"run {run:3d}  {', '.join(labels)}\n"
-        f"         {start} -> {end}\n"
-        f"         terrain  {row['terrain_dist_km']:5.2f} km  "
+        f"  run {run:3d}  {', '.join(labels)}\n"
+        f"           {start} -> {end}\n"
+        f"           terrain  {row['terrain_dist_km']:5.2f} km  "
         f"{row['terrain_time_min']:6.1f} min  +{row['terrain_gain_m']:.0f} m climb\n"
-        f"         shortest {row['shortest_dist_km']:5.2f} km  "
+        f"           shortest {row['shortest_dist_km']:5.2f} km  "
         f"{row['shortest_time_min']:6.1f} min  +{row['shortest_gain_m']:.0f} m climb\n"
-        f"         saved {row['time_saved_min']:.1f} min for "
+        f"           saved {row['time_saved_min']:.1f} min "
+        f"({row['time_saved_min'] / row['shortest_time_min'] * 100:.0f}%) for "
         f"{row['extra_dist_m']:.0f} m extra\n"
     )
 
 
-if __name__ == "__main__":
-    outdir = "plots"
+def plot_area(area):
+    csv_path = f"results/{area}.csv"
+
+    if not os.path.exists(csv_path):
+        print(f"{area}: no {csv_path}, skipping\n")
+        return
+
+    main.load_dem(dem.ensure(area))
+
+    outdir = f"plots/{area}"
     os.makedirs(outdir, exist_ok=True)
 
-    rows = load()
+    rows = load(csv_path)
     by_run = {int(r["run"]): r for r in rows}
+
+    print(f"{area}")
 
     for run, labels in pick(rows).items():
         plot_run(by_run[run], labels, outdir)
 
-    print(f"wrote {len(os.listdir(outdir))} files to {outdir}/")
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--areas", default="", help="comma-separated, default all")
+    args = parser.parse_args()
+
+    for area in args.areas.split(",") if args.areas else dem.all_areas():
+        plot_area(area)
+
+    print("wrote plots/<area>/run<N>_{map,profile}.png")

@@ -4,9 +4,21 @@ import numpy as np
 import heapq
 import matplotlib.pyplot as plt
 
-with rasterio.open("./data/ricketts_glen_dem.tif") as src:
-    elevation = src.read(1)
-    x_res, y_res = src.res
+import dem
+
+
+def load_dem(path):
+    """Point the module at a DEM. Every cost function reads these globals."""
+    global elevation, x_res, y_res
+
+    with rasterio.open(path) as src:
+        elevation = src.read(1)
+        x_res, y_res = src.res
+
+    return elevation
+
+
+load_dem(dem.ensure("ricketts_glen"))
 
 
 def calc_distance(row1, col1, row2, col2):
